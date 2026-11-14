@@ -4,7 +4,9 @@
 
 **Görev:** Extension Native-Messaging Host Risk Analyzer
 
-**Tarih:** 13 Kasım 2026
+**İlk teslim:** 13 Kasım 2026
+
+**Rebase ve rapor düzenlemesi:** 14 Kasım 2026
 
 **Tek teslim PR'ı:** https://github.com/keyvanarasteh/os-lab/pull/130
 
@@ -22,7 +24,7 @@ yüklenmedi; host programı çalıştırılmadı. Docker/VM gerektirmeyen statik
 
 ## Uygulama
 
-- [`scripts/analysis/ext_native_host.py`](scripts/analysis/ext_native_host.py):
+- [`scripts/analysis/ext_native_host.py`](../../../../scripts/analysis/ext_native_host.py):
   Python 3.11+ standart kütüphanesiyle CLI ve içe aktarılabilir `analyze()`.
 - Manifest V2/V3 zorunlu/isteğe bağlı `nativeMessaging` izinleri; JavaScript/HTML
   üzerinde `connectNative` / `sendNativeMessage` çağrı ipuçları ve satır konumları.
@@ -34,9 +36,9 @@ yüklenmedi; host programı çalıştırılmadı. Docker/VM gerektirmeyen statik
   okunmadan raporlanır; kapsam dışı girdi dosyası analizi reddeder. JSON/kaynak/
   binary boyutu ve dosya/host sayısı sınırlıdır; eksik tarama temiz gösterilmez.
 - İnsan tarafından okunabilir çıktı veya `--json`; çıkış kodları 0/1/2.
-  Ayrıntılar ve sınırlamalar [kullanım belgesinde](scripts/analysis/README.md).
+  Ayrıntılar ve sınırlamalar [kullanım belgesinde](../../../../scripts/analysis/README.md).
 
-## Tekrar üretim ve doğrulama
+## 13 Kasım — rebase öncesi doğrulama
 
 Ubuntu 24.04 / WSL2, Python 3.12.3 üzerinde:
 
@@ -56,7 +58,7 @@ kurulu olmadığı için isteğe bağlı dashboard kontrolü atlandı. Dashboard
 derlenmiş çıktısı ve bağımlılıkları bu PR'da değiştirilmedi. macOS çalıştırması
 yapılmadı. Windows ACL değerlendirmesi araç tarafından açıkça doğrulanmamış gösterilir.
 
-Gerçek ham tam-runner çıktısı: [VERIFY.md](scripts/analysis/PENT-18/VERIFY.md).
+Gerçek ham tam-runner çıktısı: [VERIFY.md](../../../../scripts/analysis/PENT-18/VERIFY.md).
 
 Windows / Python 3.14 üzerinde araca özel testler de çalıştırıldı: **23 geçti,
 3 atlandı**. Atlananlar POSIX izinleri ve symlink davranışına özgü testlerdir;
@@ -111,3 +113,39 @@ AI katkısı ve aracın sınırları bu raporda açıkça belirtilmiştir.
 
 Referanslar: [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
 [Mozilla native manifests](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_manifests).
+
+## Güncel master ile birleştirme ve rezervasyon kaydı
+
+PR #130, 13 Kasım 2026 tarihinde rezervasyon içeren ilk commit ile açılmıştır.
+14 Kasım tarihli değerlendirme yorumundan sonra master'da başka öğrencinin
+PENT-18 teslimi (#189), rezervasyonu ve görev raporu da merge edilmiştir.
+Güncel master üzerine rebase sırasında bu öğrencinin tamamlanmış rezervasyonu,
+raporu ve kodu korunmuştur. Bizim özgün rezervasyon kaydımız
+[reservation.json](reservation.json) dosyasındadır; ortak
+[reservations/PENT-18.json](../../../../reservations/PENT-18.json) notu da önce
+açılmış PR #130'a ve bu kayda işaret eder. İki öğrencinin kaydı tek bir kişinin
+adıyla değiştirilmemiştir; görev tahsisinin nihai değerlendirmesi ders hocasına aittir.
+
+Bu rapor kökten görev/öğrenci klasörüne taşınmış, mevcut
+[görev raporuna](../REPORT.md) bu teslimin bağlantısı eklenmiştir.
+İlk video ve 13 Kasım doğrulama çıktıları kendi tarihlerindeki gerçek çalıştırmayı
+göstermeye devam eder; rebase sonrası doğrulama ayrıca kaydedilir.
+
+## 14 Kasım — rebase sonrası doğrulama
+
+Güncel master (`33d703fc`) üzerine rebase tamamlandı. PENT-18 ve çakışması
+çözülen web testleri birlikte **43 geçti**. Source Lab **176 geçti**; Cleanup
+reference, OS-30, örnek analiz/rapor ve 77 shell betiği kontrolü geçti.
+`lat check` de geçti; yeni master'daki bir uzun özet paragrafı yalnızca
+bölünerek grafik biçim denetimi düzeltildi.
+
+Tam runner'ın güncel özeti **5 başarılı aşama, 2 başarısız aşama, 3 atlama**.
+Android tarafında üç macOS testi; Cleanup engine'de üç başarısızlık ve altı hata
+var. Bunların tamamı değiştirilmemiş master kopyasında da yeniden üretildi.
+Bu PR macOS/Cleanup işlevlerini veya ilgili testleri değiştirmiyor. Önceki
+13 Kasım temiz test sonucu bu yeni master'ın temiz geçtiği iddiası değildir.
+
+Yeni ham çıktılar ve master karşılaştırması:
+[VERIFY-2026-11-14.md](VERIFY-2026-11-14.md). Yerel çalışma klasörü yolları
+bu yeni kayıtta gizlilik için maskelenmiştir. Video 13 Kasım çalıştırmasını
+göstermeye devam eder.

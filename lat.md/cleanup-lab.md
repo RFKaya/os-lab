@@ -238,8 +238,10 @@ relocation card is the dashboard layer's part.
 
 [[dashboard/src/views/cleanup/pages.tsx]] renders the compact default dashboard at
 `/cleanup/`: one read-only catalog scan, measured suggestions, plan review,
-confirmation, progress and a result summary. Its confirmation opens the shared
-native dialog (focus containment, Escape/backdrop close, focus return) that
+confirmation, progress and a result summary.
+
+Its confirmation opens the shared native dialog (focus containment,
+Escape/backdrop close, focus return) that
 lists ready items with sizes and skipped items with their reasons.
 
 The recommended preset uses default-selected, nonprivileged entries outside
