@@ -14,12 +14,14 @@ mod console;
 mod container_runtime;
 mod python_runtime;
 mod runtime;
+mod widget;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri::menu::{MenuBuilder, SubmenuBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::StoreExt;
@@ -111,6 +113,15 @@ fn chosen_root(app: &AppHandle) -> Option<PathBuf> {
 
 /// Env → chosen checkout → development checkout → the bundled runtime in the data folder.
 fn resolve_root(app: &AppHandle) -> Result<(PathBuf, Source), String> {
+    resolve_root_reporting(app, &mut |_| {})
+}
+
+/// `resolve_root`, reporting how far the bundled files are along (only the bundled copy has any
+/// work to report; a checkout or chosen folder is used as it is).
+fn resolve_root_reporting(
+    app: &AppHandle,
+    report: &mut dyn FnMut(runtime::SyncProgress),
+) -> Result<(PathBuf, Source), String> {
     if let Some(dir) = std::env::var_os("OSLAB_ROOT") {
         let dir = PathBuf::from(dir);
         return if runtime::is_root(&dir) {
@@ -131,13 +142,32 @@ fn resolve_root(app: &AppHandle) -> Result<(PathBuf, Source), String> {
         .map_err(|e| e.to_string())?
         .join("os-lab");
     let target = data_dir(app)?.join("os-lab");
-    runtime::sync_bundle(&bundle, &target, &app.package_info().version.to_string())?;
+    runtime::sync_bundle_reporting(&bundle, &target, &app.package_info().version.to_string(), report)?;
     Ok((target, Source::Bundled))
 }
 
 #[tauri::command]
 async fn console_start(app: AppHandle, state: State<'_, Console>) -> Result<Started, String> {
-    let (root, source) = resolve_root(&app)?;
+    // Preparing the files can take minutes on a busy disk, so it runs off the async workers and
+    // tells the launcher how far along it is (events: "console-progress").
+    let progress_app = app.clone();
+    let (root, source) = tauri::async_runtime::spawn_blocking(move || {
+        let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        resolve_root_reporting(&progress_app, &mut |p| {
+            // At most ~10 events a second, but never drop the first or the last of a phase.
+            let edge = p.done == 0 || (p.total > 0 && p.done >= p.total);
+            if edge || last.elapsed() >= std::time::Duration::from_millis(100) {
+                last = std::time::Instant::now();
+                let phase = match p.phase { runtime::SyncPhase::Check => "check", runtime::SyncPhase::Copy => "copy" };
+                let _ = progress_app.emit("console-progress", serde_json::json!({
+                    "step": "prepare", "phase": phase, "done": p.done, "total": p.total,
+                }));
+            }
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let _ = app.emit("console-progress", serde_json::json!({ "step": "console", "phase": "start", "done": 0, "total": 0 }));
     // Downloaded content packs (console/content.py) live in the app's data folder, beside but
     // never inside the bundled copy, so "reset" always returns to what shipped.
     let content = std::env::var_os("OSLAB_CONTENT_DIR").map(PathBuf::from)
@@ -393,6 +423,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(Console::new())
         .on_menu_event(|app, event| {
             if event.id().as_ref() == "files_settings" {
@@ -435,6 +466,18 @@ pub fn run() {
             let menu = MenuBuilder::new(app).item(&file_menu).build()?;
             app.set_menu(menu)?;
             build_window(app.handle(), None)?;
+            // CLW-04: reload the macOS widgets whenever the console publishes
+            // a new snapshot; CLW-03: oslab:// deep links route in place.
+            widget::start_reload_watcher();
+            let nav = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    if url.scheme() == "oslab" {
+                        let route = url.path().trim_start_matches('/').to_string();
+                        navigate_widget_route(&nav, &route);
+                    }
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -445,7 +488,50 @@ pub fn run() {
             // Stop the console (and the jobs in its process group) with the app.
             handle.state::<Console>().stop();
         }
+        if let tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Focused(true), .. } = event {
+            // CLW-05: the widget's quick-clean intent opens the app; its
+            // request is picked up once, on focus, while it is still fresh.
+            if let Some(w) = handle.get_webview_window("main") {
+                let on_dashboard = w.url().map(|u| u.scheme() == "http" || u.scheme() == "https").unwrap_or(false);
+                if on_dashboard && widget::consume_pending_quick_clean() {
+                    let _ = w.eval("window.__oslabQuickClean && window.__oslabQuickClean()");
+                }
+            }
+            widget::reload_timelines();
+        }
     });
+}
+
+/// CLW-03: routes an oslab:// deep link into the dashboard in place. A known
+/// route only — unknown routes are refused rather than navigated blind. When
+/// the window still shows the launcher, the console URL hands it straight to
+/// the matching dashboard page.
+const WIDGET_ROUTES: [&str; 10] = [
+    "dashboard", "scan", "results", "leftovers", "history", "space",
+    "cleanup-bookmarks", "cleanup-monitor", "cleanup-permissions", "cleanup-widgets",
+];
+
+fn navigate_widget_route(app: &AppHandle, route: &str) {
+    if !WIDGET_ROUTES.contains(&route) {
+        return;
+    }
+    let Some(w) = app.get_webview_window("main") else { return };
+    let on_dashboard = w.url().map(|u| u.scheme() == "http" || u.scheme() == "https").unwrap_or(false);
+    if on_dashboard {
+        let _ = w.eval(format!(
+            "window.__oslabNavigate && window.__oslabNavigate({})",
+            serde_json::to_string(route).unwrap_or_default()
+        ));
+        return;
+    }
+    let Some(base) = app.state::<Console>().running_url() else { return };
+    let tab = match route {
+        "scan" | "results" | "leftovers" | "history" | "space" => format!("cleanup/{route}/"),
+        _ => "cleanup/".to_string(),
+    };
+    if let Ok(url) = url::Url::parse(&format!("{}/{}", base.trim_end_matches('/'), tab)) {
+        let _ = w.navigate(url);
+    }
 }
 
 #[cfg(test)]

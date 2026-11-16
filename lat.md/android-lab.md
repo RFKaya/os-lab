@@ -76,13 +76,31 @@ report generator [[android-lab/lab/scripts/app_reporter.py]], the MobSF client
 [[android-lab/lab/scripts/pinning_detector.py]] (PENT-11) classifies how an APK or decompiled
 tree pins TLS, statically, before any dynamic work.
 
-It decodes binary manifest and `res/xml` Network Security Config files itself, then scores OkHttp
-pin literals, custom TrustManager key checks, TrustKit and cross-platform plugins, Flutter,
-native `.so` verification and bundled certificates. Output is a ranked method list with
-evidence, a `pinned` / `likely_pinned` / `possible` / `none_detected` status, weak-validation
-flags and the matching lab hook as next step. Library-only class presence stays `low`
-confidence. It reads local files only (`make pinning APK=`); tests are in
+It decodes binary manifest and `res/xml` Network Security Config files itself (counting `<pin-set>`
+configs as strong evidence only when matched to a manifest `@xml/<name>` resource path, and
+deduplicating identical copies), then scores OkHttp `sha256/` and `sha1/` pin literals, custom
+TrustManager key checks, TrustKit and cross-platform plugins, Flutter, native `.so` verification and
+bundled certificates. Generic TLS API usage and library-only class presence stay `low` confidence.
+Scans enforce per-file and aggregate file/byte limits, expose coverage metadata (`scan_complete`,
+`skipped`, `skipped_count`, `scan_truncated`), return `incomplete_scan` instead of `none_detected`
+when inputs were skipped, escape untrusted paths in Markdown, and publish JSON + Markdown report
+pairs atomically with output-directory exclusion in non-`--json` runs. Output is a ranked method
+list with evidence, a `pinned` / `likely_pinned` / `possible` / `none_detected` /
+`incomplete_scan` status, weak-validation flags and the matching lab hook as next step. It reads
+local files only (`make pinning APK=`); tests are in
 [[android-lab/lab/tests/test_pinning_detector.py]].
+
+### Policy-driven Interceptor runner
+
+[[android-lab/lab/hooks/tamper_policy.js]] and [[android-lab/lab/scripts/tamper_runner.py]]
+(PENT-07) drive policy-based Frida `Interceptor` hooks (`onEnter` argument inspection
+and tampering, `onLeave` return-value inspection and `retval.replace`) against the
+deterministic lab authentication harness [[android-lab/lab/tests/targets/hedef.c]].
+
+A fail-closed scope guard refuses external targets, symlink escapes, and unauthorized
+functions before any instrumentation runs. The runner supports both live Frida injection
+and an offline deterministic mode for headless CI, verified against golden-file fixtures
+in [[android-lab/lab/tests/test_tamper_runner.py]].
 
 ## Tests
 
